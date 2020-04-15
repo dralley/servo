@@ -12,7 +12,7 @@ use servo::compositing::windowing::{AnimationState, WindowEvent};
 use servo::compositing::windowing::{EmbedderCoordinates, WindowMethods};
 use servo::servo_geometry::DeviceIndependentPixel;
 use servo::style_traits::DevicePixel;
-use servo::webrender_api::units::DeviceIntRect;
+use servo::webrender_api::units::{DeviceIntRect, DeviceIntSize};
 use servo_media::player::context as MediaPlayerCtxt;
 use servo::webrender_surfman::WebrenderSurfman;
 use std::cell::Cell;
@@ -27,6 +27,8 @@ pub struct Window {
     animation_state: Cell<AnimationState>,
     fullscreen: Cell<bool>,
     device_pixels_per_px: Option<f32>,
+    inner_size: Cell<Size2D<i32, DeviceIndependentPixel>>,
+    size_changed: Cell<bool>, // We need to transmit resize events, but don't have/need an event queue
 }
 
 impl Window {
@@ -37,8 +39,7 @@ impl Window {
         // Initialize surfman
         let connection = Connection::new().expect("Failed to create connection");
         let adapter = connection.create_software_adapter().expect("Failed to create adapter");
-        let size = size.to_untyped().to_i32();
-        let surface_type = SurfaceType::Generic { size };
+        let surface_type = SurfaceType::Generic { size: size.to_untyped().to_i32() };
         let webrender_surfman = WebrenderSurfman::create(
             &connection,
             &adapter,
@@ -50,6 +51,8 @@ impl Window {
             animation_state: Cell::new(AnimationState::Idle),
             fullscreen: Cell::new(false),
             device_pixels_per_px,
+            inner_size: Cell::new(size.to_i32()),
+            size_changed: Cell::new(false),
         };
 
         Rc::new(window)
@@ -65,11 +68,31 @@ impl Window {
 
 impl WindowPortsMethods for Window {
     fn get_events(&self) -> Vec<WindowEvent> {
-        vec![]
+        let mut vec = Vec::new();
+
+        if self.size_changed.take() {
+            vec.push(WindowEvent::Resize);
+        }
+
+        vec
+    }
+
+    fn set_inner_size(&self, size: DeviceIntSize) {
+        let (width, height) = size.into();
+        // Clamp width and height to 1 - webrender_surfman doesn't accept 0-dimension windows
+        let width = if width > 0 { width } else { 1 };
+        let height = if height > 0 { height } else { 1 };
+
+        let new_size = Size2D::new(width, height);
+        if self.inner_size.get() != new_size {
+            self.webrender_surfman.resize(new_size.to_untyped()).expect("Failed to resize");
+            self.inner_size.set(new_size);
+        }
+        self.size_changed.set(true);
     }
 
     fn has_events(&self) -> bool {
-        false
+        self.size_changed.get()
     }
 
     fn id(&self) -> winit::WindowId {
@@ -100,6 +123,7 @@ impl WindowPortsMethods for Window {
 
     fn winit_event_to_servo_event(&self, _event: winit::WindowEvent) {
         // Not expecting any winit events.
+        unreachable!("Did not expect a WindowEvent for a headless session");
     }
 
     fn new_glwindow(&self, _events_loop: &EventsLoop) -> Box<dyn webxr::glwindow::GlWindow> {

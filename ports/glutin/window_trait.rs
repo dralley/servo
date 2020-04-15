@@ -22,8 +22,8 @@ pub trait WindowPortsMethods: WindowMethods {
     fn get_fullscreen(&self) -> bool;
     fn winit_event_to_servo_event(&self, event: winit::WindowEvent);
     fn is_animating(&self) -> bool;
+    fn set_inner_size(&self, _size: DeviceIntSize);
     fn set_title(&self, _title: &str) {}
-    fn set_inner_size(&self, _size: DeviceIntSize) {}
     fn set_position(&self, _point: DeviceIntPoint) {}
     fn set_fullscreen(&self, _state: bool) {}
     fn set_cursor(&self, _cursor: Cursor) {}

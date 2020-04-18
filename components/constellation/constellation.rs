@@ -77,11 +77,11 @@
 //! * Blocking is transitive (if T1 can block on T2 and T2 can block on T3 then T1 can block on T3)
 //! * Nothing can block on itself!
 //!
-//! There is a complexity intoduced by IPC channels, since they do not support
+//! There is a complexity introduced by IPC channels, since they do not support
 //! non-blocking send. This means that as well as `receiver.recv()` blocking,
 //! `sender.send(data)` can also block when the IPC buffer is full. For this reason it is
 //! very important that all IPC receivers where we depend on non-blocking send
-//! use a router to route IPC messages to an mpsc channel. The reason why that solves
+//! use a router to route IPC messages to an crossbeam channel. The reason why that solves
 //! the problem is that under the hood, the router uses a dedicated thread to forward
 //! messages, and:
 //!
@@ -380,7 +380,7 @@ pub struct Constellation<Message, LTF, STF, SWF> {
     /// The receiver to which the IPC requests from scheduler_chan will be forwarded.
     scheduler_receiver: Receiver<Result<TimerSchedulerMsg, IpcError>>,
 
-    /// The logic and data behing scheduling timer events.
+    /// The logic and data behind scheduling timer events.
     timer_scheduler: TimerScheduler,
 
     /// A single WebRender document the constellation operates on.
@@ -711,21 +711,21 @@ fn log_entry(record: &Record) -> Option<LogEntry> {
 /// The number of warnings to include in each crash report.
 const WARNINGS_BUFFER_SIZE: usize = 32;
 
-/// Route an ipc receiver to an mpsc receiver, preserving any errors.
-/// This is the same as `route_ipc_receiver_to_new_mpsc_receiver`,
-/// but does not panic on deserializtion errors.
-fn route_ipc_receiver_to_new_mpsc_receiver_preserving_errors<T>(
+/// Route an ipc receiver to an crossbeam receiver, preserving any errors.
+/// This is the same as `route_ipc_receiver_to_new_crossbeam_receiver`,
+/// but does not panic on deserialization errors.
+fn route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors<T>(
     ipc_receiver: IpcReceiver<T>,
 ) -> Receiver<Result<T, IpcError>>
 where
     T: for<'de> Deserialize<'de> + Serialize + Send + 'static,
 {
-    let (mpsc_sender, mpsc_receiver) = unbounded();
+    let (crossbeam_sender, crossbeam_receiver) = unbounded();
     ROUTER.add_route(
         ipc_receiver.to_opaque(),
-        Box::new(move |message| drop(mpsc_sender.send(message.to::<T>()))),
+        Box::new(move |message| drop(crossbeam_sender.send(message.to::<T>()))),
     );
-    mpsc_receiver
+    crossbeam_receiver
 }
 
 enum WebrenderMsg {
@@ -846,17 +846,17 @@ where
                 let (ipc_script_sender, ipc_script_receiver) =
                     ipc::channel().expect("ipc channel failure");
                 let script_receiver =
-                    route_ipc_receiver_to_new_mpsc_receiver_preserving_errors(ipc_script_receiver);
+                    route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors(ipc_script_receiver);
 
                 let (namespace_sender, ipc_namespace_receiver) =
                     ipc::channel().expect("ipc channel failure");
-                let namespace_receiver = route_ipc_receiver_to_new_mpsc_receiver_preserving_errors(
+                let namespace_receiver = route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors(
                     ipc_namespace_receiver,
                 );
 
                 let (scheduler_chan, ipc_scheduler_receiver) =
                     ipc::channel().expect("ipc channel failure");
-                let scheduler_receiver = route_ipc_receiver_to_new_mpsc_receiver_preserving_errors(
+                let scheduler_receiver = route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors(
                     ipc_scheduler_receiver,
                 );
 
@@ -866,7 +866,7 @@ where
                             ipc::channel().expect("ipc channel failure");
                         (
                             Some(bhm_sender),
-                            Some(route_ipc_receiver_to_new_mpsc_receiver_preserving_errors(
+                            Some(route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors(
                                 ipc_bhm_receiver,
                             )),
                         )
@@ -900,12 +900,12 @@ where
                 let (ipc_layout_sender, ipc_layout_receiver) =
                     ipc::channel().expect("ipc channel failure");
                 let layout_receiver =
-                    route_ipc_receiver_to_new_mpsc_receiver_preserving_errors(ipc_layout_receiver);
+                    route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors(ipc_layout_receiver);
 
                 let (network_listener_sender, network_listener_receiver) = unbounded();
 
                 let swmanager_receiver =
-                    route_ipc_receiver_to_new_mpsc_receiver_preserving_errors(swmanager_receiver);
+                    route_ipc_receiver_to_new_crossbeam_receiver_preserving_errors(swmanager_receiver);
 
                 // Zero is reserved for the embedder.
                 PipelineNamespace::install(PipelineNamespaceId(1));
